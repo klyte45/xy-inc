@@ -61,7 +61,34 @@ public class EntityManagementServiceTest {
         data.put(URI_FIELD_NAME, "any");
         data.put(ENTITY_FIELD_NAME, "Any Entity");
         data.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
+        data.put(FIELDS_FIELD_NAME, getFieldDescriptorLong());
+        data.put(SEQ_FIELD_NAME, "teste");
+
+        entityManagementService.createEntity(data);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void createEntity_SeqField_NotInEntity() {
+        HashMap<String, Object> data = new HashMap<>();
+
+        data.put(URI_FIELD_NAME, "any");
+        data.put(ENTITY_FIELD_NAME, "Teste");
+        data.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
         data.put(FIELDS_FIELD_NAME, getFieldDescriptorString());
+        data.put(SEQ_FIELD_NAME, "XXXX");
+
+        entityManagementService.createEntity(data);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void createEntity_SeqField_NotNumber() {
+        HashMap<String, Object> data = new HashMap<>();
+
+        data.put(URI_FIELD_NAME, "any");
+        data.put(ENTITY_FIELD_NAME, "Teste");
+        data.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
+        data.put(FIELDS_FIELD_NAME, getFieldDescriptorString());
+        data.put(SEQ_FIELD_NAME, "teste");
 
         entityManagementService.createEntity(data);
     }
@@ -119,19 +146,6 @@ public class EntityManagementServiceTest {
         HashMap<String, Object> data = new HashMap<>();
 
         data.put(URI_FIELD_NAME, "ôçaeaqeqw231+§");
-        data.put(ENTITY_FIELD_NAME, "AAA");
-        data.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
-        data.put(FIELDS_FIELD_NAME, getFieldDescriptorString());
-
-        entityManagementService.createEntity(data);
-    }
-
-
-    @Test(expected = IllegalArgumentException.class)
-    public void createEntity_ReservedUri() {
-        HashMap<String, Object> data = new HashMap<>();
-
-        data.put(URI_FIELD_NAME, "configuration");
         data.put(ENTITY_FIELD_NAME, "AAA");
         data.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
         data.put(FIELDS_FIELD_NAME, getFieldDescriptorString());
@@ -226,7 +240,10 @@ public class EntityManagementServiceTest {
 
     @Test
     public void updateEntity_OK() {
-        when(mongoService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(new Document()));
+        Document prevDoc = new Document();
+        prevDoc.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
+
+        when(mongoService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(prevDoc));
         HashMap<String, Object> data = new HashMap<>();
 
         data.put(URI_FIELD_NAME, "any");
@@ -278,6 +295,21 @@ public class EntityManagementServiceTest {
 
     private List<Map<String, Object>> getFieldDescriptorString() {
         FieldDescriptor strFieldDescriptor = new FieldDescriptor("teste", FieldTypeService.DefaultFieldTypes.STRING, false);
+        strFieldDescriptor.setMinLength(10);
+        strFieldDescriptor.setMaxLength(20);
+        ObjectMapper mapper      = new ObjectMapper();
+        TypeFactory  typeFactory = mapper.getTypeFactory();
+        MapType      mapType     = typeFactory.constructMapType(HashMap.class, String.class, Object.class);
+        try {
+            return Collections.singletonList(mapper.readValue(mapper.writeValueAsString(strFieldDescriptor), mapType));
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private List<Map<String, Object>> getFieldDescriptorLong() {
+        FieldDescriptor strFieldDescriptor = new FieldDescriptor("teste", FieldTypeService.DefaultFieldTypes.LONG, false);
         strFieldDescriptor.setMinLength(10);
         strFieldDescriptor.setMaxLength(20);
         ObjectMapper mapper      = new ObjectMapper();

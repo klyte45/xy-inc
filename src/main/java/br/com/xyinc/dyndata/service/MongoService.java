@@ -10,6 +10,7 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.UpdateOptions;
 import org.apache.commons.lang3.ArrayUtils;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static br.com.xyinc.dyndata.service.EntityManagementService.SEQ_COLLECTION_LASTID_FIELD_NAME;
+import static br.com.xyinc.dyndata.service.EntityManagementService.SEQ_COLLECTION_NAME;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Projections.*;
@@ -32,7 +35,9 @@ public class MongoService {
     private String dbName = "dyndata";
 
     @Autowired
-    private FieldTypeService fieldTypeService;
+    private FieldTypeService        fieldTypeService;
+    @Autowired
+    private EntityManagementService entityManagementService;
 
     public String getDbUrl() {
         return dbUrl;
@@ -65,10 +70,12 @@ public class MongoService {
         try (MongoClient client = new MongoClient(new ServerAddress(dbUrl, dbPort))) {
             client.getAddress();
             MongoDatabase   db           = client.getDatabase(dbName);
-            MongoCollection confCol      = db.getCollection(EntityManagementService.CONFIG_COLLECTION_NAME);
+            MongoCollection confCol      = db.getCollection(entityManagementService.getConfigurationCollection().getCollectionName());
             IndexOptions    indexOptions = new IndexOptions();
-
             indexOptions.unique(true);
+            confCol.createIndex(fields(include(EntityManagementService.URI_FIELD_NAME)), indexOptions);
+
+            MongoCollection seqCol = db.getCollection(SEQ_COLLECTION_NAME);
             confCol.createIndex(fields(include(EntityManagementService.URI_FIELD_NAME)), indexOptions);
         }
     }
@@ -119,7 +126,31 @@ public class MongoService {
         } else {
             String   collectionName = descriptor.getCollectionName();
             Document document       = fieldTypeService.toDocument(descriptor, params);
-            Bson     condition      = and(descriptor.getKeys().stream().map(x -> eq(x, params.get(x))).distinct().collect(Collectors.toList()));
+            if (descriptor.getSequenceField() != null) {
+                if (document.get(descriptor.getSequenceField()) == null) {
+                    long nextNumber;
+                    try (MongoClient client = new MongoClient(new ServerAddress(dbUrl, dbPort))) {
+                        MongoDatabase          db         = client.getDatabase(dbName);
+                        MongoCollection        collection = db.getCollection(SEQ_COLLECTION_NAME);
+                        Bson                   condition  = eq(EntityManagementService.URI_FIELD_NAME, descriptor.getUriName());
+                        FindIterable<Document> x          = collection.find();
+                        Document               lastIdLine = x.first();
+                        if (lastIdLine == null) {
+                            nextNumber = 1L;
+                            lastIdLine = new Document();
+                            lastIdLine.put(EntityManagementService.URI_FIELD_NAME, descriptor.getUriName());
+                        } else {
+                            nextNumber = ((BsonValue) lastIdLine.get(SEQ_COLLECTION_LASTID_FIELD_NAME)).asNumber().longValue() + 1;
+                        }
+                        document.put(SEQ_COLLECTION_LASTID_FIELD_NAME, nextNumber);
+                        UpdateOptions uo = new UpdateOptions();
+                        uo.upsert(true);
+                        collection.replaceOne(condition, document, uo);
+                    }
+                    document.put(descriptor.getSequenceField(), nextNumber);
+                }
+            }
+            Bson condition = and(descriptor.getKeys().stream().map(x -> eq(x, params.get(x))).distinct().collect(Collectors.toList()));
             try (MongoClient client = new MongoClient(new ServerAddress(dbUrl, dbPort))) {
                 MongoDatabase   db         = client.getDatabase(dbName);
                 MongoCollection collection = db.getCollection(collectionName);

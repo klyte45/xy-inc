@@ -2,6 +2,7 @@ package br.com.xyinc.dyndata.service;
 
 import br.com.xyinc.dyndata.model.EntityDescriptor;
 import br.com.xyinc.dyndata.model.FieldDescriptor;
+import org.apache.commons.lang3.ArrayUtils;
 import org.bson.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -17,30 +18,32 @@ import static com.mongodb.client.model.Filters.eq;
 @Service
 public class EntityManagementService {
 
-    public final static  String CONFIG_COLLECTION_NAME    = "_configure";
-    final static         String URI_FIELD_NAME            = "uriName";
-    final static         String ENTITY_FIELD_NAME         = "entityName";
-    final static         String KEYS_FIELD_NAME           = "keys";
-    final static         String FIELDS_FIELD_NAME         = "fields";
-    private final static String COLLECTION_FIELD_NAME     = "collectionName";
-    private final static String DEFAULT_COLLECTION_PREFIX = "dyn.";
+    public final static  String       SEQ_COLLECTION_NAME              = "seq.collections";
+    public final static  String       SEQ_COLLECTION_LASTID_FIELD_NAME = "lastId";
+    public final static  String       DEFAULT_COLLECTION_PREFIX        = "dyn.";
+    final static         String       URI_FIELD_NAME                   = "uriName";
+    final static         String       ENTITY_FIELD_NAME                = "entityName";
+    final static         String       KEYS_FIELD_NAME                  = "keys";
+    final static         String       SEQ_FIELD_NAME                   = "sequenceField";
+    final static         String       FIELDS_FIELD_NAME                = "fields";
+    private final static String       COLLECTION_FIELD_NAME            = "collectionName";
+    private final static List<String> ALLOWED_SEQ_FIELD_TYPES          = Arrays.asList(FieldTypeService.DefaultFieldTypes.INTEGER, FieldTypeService.DefaultFieldTypes.LONG);
     private static EntityDescriptor _configurationCollection;
+
     @Autowired
-    private        MongoService     mongoService;
+    private MongoService     mongoService;
     @Autowired
-    private        FieldTypeService fieldTypeService;
+    private FieldTypeService fieldTypeService;
 
     /**
      * Instancia o descritor que representa a coleção dos descritores de entidades.
      *
      * @return Descritor da coleção dos descritores de entidades
      */
-    private EntityDescriptor getConfigurationCollection() {
+    public EntityDescriptor getConfigurationCollection() {
         if (_configurationCollection == null) {
             _configurationCollection = new EntityDescriptor();
-
-            _configurationCollection.setCollectionName(CONFIG_COLLECTION_NAME);
-            _configurationCollection.setUriName("collectionDescriptor");
+            _configurationCollection.setUriName("@collectionDescriptor");
             _configurationCollection.setKeys(Collections.singletonList(URI_FIELD_NAME));
             FieldDescriptor documentsFieldDescriptor = new FieldDescriptor("documentFields", FieldTypeService.DefaultFieldTypes.DOCUMENT_ARR, true);
             List<FieldDescriptor> fieldFieldsDescriptor = Arrays.asList(
@@ -60,9 +63,9 @@ public class EntityManagementService {
             keyFieldDescriptor.setMinLength(1);
 
             _configurationCollection.setFields(Arrays.asList(
-                    new FieldDescriptor(COLLECTION_FIELD_NAME, FieldTypeService.DefaultFieldTypes.STRING, false),
                     new FieldDescriptor(URI_FIELD_NAME, FieldTypeService.DefaultFieldTypes.STRING, false),
                     new FieldDescriptor(ENTITY_FIELD_NAME, FieldTypeService.DefaultFieldTypes.STRING, false),
+                    new FieldDescriptor(SEQ_FIELD_NAME, FieldTypeService.DefaultFieldTypes.STRING, true),
                     keyFieldDescriptor,
                     new FieldDescriptor(FIELDS_FIELD_NAME, FieldTypeService.DefaultFieldTypes.DOCUMENT_ARR, false, fieldFieldsDescriptor)
             ));
@@ -94,6 +97,7 @@ public class EntityManagementService {
      *
      * @param data Dados do descritor da nova entidade
      */
+    @SuppressWarnings("unchecked")
     public void createEntity(Map<String, Object> data) {
         if (data.get(URI_FIELD_NAME) == null) {
             throw new IllegalArgumentException("URI da entidade não pode ser nula!");
@@ -102,9 +106,7 @@ public class EntityManagementService {
         if (findEntity(uriName).isPresent()) {
             throw new IllegalArgumentException("Entidade já existe!");
         }
-        if (uriName.equals("configuration")) {
-            throw new IllegalArgumentException("O nome 'configuration' é reservado pelo sistema!");
-        }
+
         saveEntity(data);
     }
 
@@ -115,10 +117,13 @@ public class EntityManagementService {
      * @param uriName URI da entidade a ser modificada
      */
     public void updateEntity(Map<String, Object> data, String uriName) {
-        if (!findEntity(uriName.trim()).isPresent()) {
+        Optional<Document> current = findEntity(uriName.trim());
+        if (!current.isPresent()) {
             throw new IllegalArgumentException("Entidade não encontrada!");
         }
         data.put(URI_FIELD_NAME, uriName.trim());
+        data.put(SEQ_FIELD_NAME, current.get().get(SEQ_FIELD_NAME));
+        data.put(KEYS_FIELD_NAME, current.get().get(KEYS_FIELD_NAME));
         saveEntity(data);
     }
 
@@ -156,12 +161,27 @@ public class EntityManagementService {
             throw new IllegalArgumentException("Lista de chaves não pode ser vazia!");
         }
         if (!fieldsNames.containsAll(keys)) {
-            throw new IllegalArgumentException("Todas as chaves enviadas no campo 'keys' devem estar presentes na lista de campos!");
+            throw new IllegalArgumentException("Todas as chaves declaradas no campo 'keys' devem estar presentes na lista de campos! Keys: " + String.join(", ", ArrayUtils.toStringArray(keys.toArray())));
         }
 
         data.put(COLLECTION_FIELD_NAME, DEFAULT_COLLECTION_PREFIX + uriName);
         data.put(URI_FIELD_NAME, uriName);
         data.put(ENTITY_FIELD_NAME, entityName);
+
+        if (data.get(SEQ_FIELD_NAME) != null) {
+            String seqField = data.get(SEQ_FIELD_NAME).toString();
+            if (!fieldsNames.contains(seqField)) {
+                throw new IllegalArgumentException("O campo sequencial declarado deve estar contido na lista de campos!");
+            }
+            for (Map<String, Object> field : fields) {
+                if (seqField.equals(field.get("fieldName"))) {
+                    String fieldType = field.getOrDefault("fieldType", "").toString();
+                    if (!ALLOWED_SEQ_FIELD_TYPES.contains(fieldType)) {
+                        throw new IllegalArgumentException(String.format("O campo sequencial '%s' deve ser do tipo Integer ou Long! Encontrado: %s", seqField, fieldType));
+                    }
+                }
+            }
+        }
 
         mongoService.replaceOne(getConfigurationCollection(), data);
     }

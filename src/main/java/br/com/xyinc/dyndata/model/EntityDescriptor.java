@@ -6,14 +6,16 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import java.util.ArrayList;
 import java.util.List;
 
+import static br.com.xyinc.dyndata.service.EntityManagementService.DEFAULT_COLLECTION_PREFIX;
+
 @JsonSerialize
 public class EntityDescriptor {
-    @JsonProperty
-    private String collectionName;
     @JsonProperty
     private String uriName;
     @JsonProperty
     private String entityName;
+    @JsonProperty
+    private String sequenceField;
 
     @JsonProperty
     private List<FieldDescriptor> fields = new ArrayList<>();
@@ -30,11 +32,7 @@ public class EntityDescriptor {
     }
 
     public String getCollectionName() {
-        return collectionName;
-    }
-
-    public void setCollectionName(String collectionEffectiveName) {
-        this.collectionName = collectionEffectiveName;
+        return DEFAULT_COLLECTION_PREFIX + uriName;
     }
 
     public String getEntityName() {
@@ -59,5 +57,13 @@ public class EntityDescriptor {
 
     public void setKeys(List<String> keys) {
         this.keys = keys;
+    }
+
+    public String getSequenceField() {
+        return sequenceField;
+    }
+
+    public void setSequenceField(String sequenceField) {
+        this.sequenceField = sequenceField;
     }
 }
