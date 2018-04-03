@@ -1,6 +1,6 @@
 package br.com.xyinc.dyndata.service;
 
-import br.com.xyinc.dyndata.exceptions.DocumentParseException;
+import br.com.xyinc.dyndata.exception.*;
 import br.com.xyinc.dyndata.model.EntityDescriptor;
 import br.com.xyinc.dyndata.model.FieldDescriptor;
 import br.com.xyinc.dyndata.model.FieldType;
@@ -9,6 +9,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
@@ -18,8 +19,13 @@ import java.sql.Timestamp;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.when;
+
 public class FieldTypeServiceTest {
 
+    @Mock
+    private MongoService     mongoService;
     @InjectMocks
     @Resource
     private FieldTypeService fieldTypeService;
@@ -27,6 +33,7 @@ public class FieldTypeServiceTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+        when(mongoService.getNextSequence(any())).thenReturn(35L);
     }
 
     @Test
@@ -124,6 +131,13 @@ public class FieldTypeServiceTest {
         assert !fieldTypeService.toBson(false, null, type, new ArrayList<>()).asBoolean().getValue();
     }
 
+    @Test
+    public void toBson_Bool_SuccessString() {
+        FieldType type = new FieldType(Boolean.class);
+        assert fieldTypeService.toBson("true", null, type, new ArrayList<>()).asBoolean().getValue();
+        assert !fieldTypeService.toBson("TRUE", null, type, new ArrayList<>()).asBoolean().getValue();
+    }
+
     @Test(expected = ClassCastException.class)
     public void toBson_Bool_CastException() {
         FieldType type = new FieldType(Boolean.class);
@@ -156,13 +170,13 @@ public class FieldTypeServiceTest {
         Assert.assertEquals(t.getTime(), bsb.asTimestamp().getValue());
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = TimestampFormatException.class)
     public void toBson_Timestamp_FromInvalidTimeString() {
         FieldType type = new FieldType(Timestamp.class);
         fieldTypeService.toBson("2018-04-01T20:38:55", null, type, new ArrayList<>());
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = TimestampFormatException.class)
     public void toBson_Timestamp_FromInvalidObject() {
         FieldType type = new FieldType(Timestamp.class);
         fieldTypeService.toBson(type, null, type, new ArrayList<>());
@@ -193,7 +207,7 @@ public class FieldTypeServiceTest {
         }
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void toBson_ArrayValue_NotArrayParam() {
         FieldType type = new FieldType(Boolean[].class);
         Boolean   val  = false;
@@ -213,7 +227,7 @@ public class FieldTypeServiceTest {
         assertResultsMapString(fieldsDocument, val, document);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = DocumentParseException.class)
     public void toBson_DocumentValue_NonMap() {
         List<FieldDescriptor> fieldsDocument = Collections.singletonList(new FieldDescriptor("teste", FieldTypeService.DefaultFieldTypes.STRING, true));
         FieldType             type           = new FieldType(Map.class);
@@ -221,7 +235,7 @@ public class FieldTypeServiceTest {
         fieldTypeService.toBson(val, fieldsDocument, type, new ArrayList<>());
     }
 
-    @Test(expected = IllegalStateException.class)
+    @Test(expected = EntityDescriptorException.class)
     public void iterateFields_InvalidValueType() {
         List<FieldDescriptor> fieldsDocument = Collections.singletonList(new FieldDescriptor("teste", "!!!!!", true));
         BsonDocument          result         = new BsonDocument();
@@ -229,13 +243,53 @@ public class FieldTypeServiceTest {
         fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_NotNull_SendNull() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorInt();
         Map<String, Object>   val            = new HashMap<>();
         BsonDocument          result         = new BsonDocument();
 
         fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result);
+        assertResultsMapNumber(fieldsDocument, val, result);
+    }
+
+    @Test
+    public void iterateFields_NotNull_WithDefault() {
+        List<FieldDescriptor> fieldsDocument = getFieldDescriptorInt();
+        fieldsDocument.get(0).setDefaultValue("0");
+        Map<String, Object> val    = new HashMap<>();
+        BsonDocument        result = new BsonDocument();
+
+        fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result);
+        val.put("teste", 0);
+        assertResultsMapNumber(fieldsDocument, val, result);
+    }
+
+    @Test(expected = EntityKeyException.class)
+    public void iterateFields_Null_IsKey() {
+        List<FieldDescriptor> fieldsDocument = getFieldDescriptorInt();
+        EntityDescriptor      descriptor     = new EntityDescriptor();
+        descriptor.setFields(fieldsDocument);
+        descriptor.setKeys(Collections.singletonList("teste"));
+        Map<String, Object> val    = new HashMap<>();
+        BsonDocument        result = new BsonDocument();
+
+        fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result, descriptor);
+    }
+
+    @Test
+    public void iterateFields_NotNull_IsSequence() {
+        List<FieldDescriptor> fieldsDocument = getFieldDescriptorInt();
+
+        EntityDescriptor ed = new EntityDescriptor();
+        ed.setFields(fieldsDocument);
+        ed.setSequenceField("teste");
+
+        Map<String, Object> val    = new HashMap<>();
+        BsonDocument        result = new BsonDocument();
+
+        fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result, ed);
+        val.put("teste", 35L);
         assertResultsMapNumber(fieldsDocument, val, result);
     }
 
@@ -253,7 +307,7 @@ public class FieldTypeServiceTest {
     }
 
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_MinMaxValidation_BelowMin() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorInt();
         Map<String, Object>   val            = new HashMap<>();
@@ -264,7 +318,7 @@ public class FieldTypeServiceTest {
         fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_MinMaxValidation_AboveMax() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorInt();
         Map<String, Object>   val            = new HashMap<>();
@@ -287,7 +341,7 @@ public class FieldTypeServiceTest {
         assertResultsMapString(fieldsDocument, val, result);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_LengthValidation_String_Short() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorString();
         Map<String, Object>   val            = new HashMap<>();
@@ -298,7 +352,7 @@ public class FieldTypeServiceTest {
         fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_LengthValidation_String_Long() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorString();
         Map<String, Object>   val            = new HashMap<>();
@@ -309,7 +363,7 @@ public class FieldTypeServiceTest {
         fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_LengthValidation_Array_Short() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorStringArray();
         Map<String, Object>   val            = new HashMap<>();
@@ -320,7 +374,7 @@ public class FieldTypeServiceTest {
         fieldTypeService.iterateFields(fieldsDocument, val, new ArrayList<>(), result);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_LengthValidation_Array_Long() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorStringArray();
         Map<String, Object>   val            = new HashMap<>();
@@ -343,7 +397,7 @@ public class FieldTypeServiceTest {
         assertResultsMapString(fieldsDocument, val, result);
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test(expected = FieldValidationException.class)
     public void iterateFields_OptionsString_NOK() {
         List<FieldDescriptor> fieldsDocument = getFieldDescriptorStringOptions();
         Map<String, Object>   val            = new HashMap<>();
@@ -374,7 +428,7 @@ public class FieldTypeServiceTest {
         Map<String, Object> val = new HashMap<>();
         val.put("teste", "K");
         val.put("esteNãoDeveEstarLá", "teste");
-        Document document = fieldTypeService.toDocument(descriptor, val);
+        fieldTypeService.toDocument(descriptor, val);
     }
 
     private List<FieldDescriptor> getFieldDescriptorInt() {

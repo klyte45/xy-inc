@@ -9,25 +9,31 @@ import java.util.List;
 @JsonSerialize
 public class FieldDescriptor {
     @JsonProperty
-    private final String                fieldName;
+    private String                fieldName;
     @JsonProperty
-    private       boolean               nullable;
+    private Boolean               nullable;
     @JsonProperty
-    private       String                fieldType;
+    private String                fieldType;
     @JsonProperty
-    private       List<String>          allowedValues;
+    private List<String>          allowedValues;
     @JsonProperty
-    private       BigDecimal            min;
+    private BigDecimal            min;
     @JsonProperty
-    private       BigDecimal            max;
+    private BigDecimal            max;
     @JsonProperty
-    private       Integer               minLength;
+    private Integer               minLength;
     @JsonProperty
-    private       Integer               maxLength;
+    private Integer               maxLength;
     @JsonProperty
-    private       List<FieldDescriptor> documentFields;
+    private String                defaultValue;
+    @JsonProperty
+    private List<FieldDescriptor> documentFields;
+
+    private FieldDescriptor() {
+    }
 
     public FieldDescriptor(String fieldName, String fieldType, boolean nullable) {
+        this();
         this.fieldName = fieldName;
         this.fieldType = fieldType;
         this.nullable = nullable;
@@ -51,16 +57,8 @@ public class FieldDescriptor {
         return fieldType;
     }
 
-    public void setFieldType(String fieldType) {
-        this.fieldType = fieldType;
-    }
-
-    public Boolean getNullable() {
-        return nullable;
-    }
-
-    public void setNullable(Boolean nullable) {
-        this.nullable = nullable;
+    public boolean getNullable() {
+        return nullable == null || nullable;
     }
 
     public BigDecimal getMin() {
@@ -109,5 +107,13 @@ public class FieldDescriptor {
 
     public void setAllowedValues(List<String> allowedValues) {
         this.allowedValues = allowedValues;
+    }
+
+    public String getDefaultValue() {
+        return defaultValue;
+    }
+
+    public void setDefaultValue(String defaultValue) {
+        this.defaultValue = defaultValue;
     }
 }

@@ -61,7 +61,7 @@ public class EntityManagementControllerTest {
     @Test
     @SuppressWarnings("unchecked")
     public void editEntity() {
-        assert entityManagementController.editEntity(new HashMap<>(), "").getStatusCodeValue() == 201;
+        assert entityManagementController.editEntity(new HashMap<>(), "").getStatusCodeValue() == 204;
 
         doThrow(IllegalArgumentException.class).when(entityManagementService).updateEntity(anyMap(), anyString());
         assert entityManagementController.editEntity(new HashMap<>(), "").getStatusCodeValue() == 400;
@@ -72,7 +72,7 @@ public class EntityManagementControllerTest {
 
     @Test
     public void deleteEntity() {
-        assert entityManagementController.deleteEntity("").getStatusCodeValue() == 201;
+        assert entityManagementController.deleteEntity("").getStatusCodeValue() == 204;
 
         doThrow(IllegalArgumentException.class).when(entityManagementService).deleteEntity(anyString());
         assert entityManagementController.deleteEntity("").getStatusCodeValue() == 400;

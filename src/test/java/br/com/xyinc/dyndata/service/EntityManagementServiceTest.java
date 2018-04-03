@@ -1,5 +1,6 @@
 package br.com.xyinc.dyndata.service;
 
+import br.com.xyinc.dyndata.exception.EntityKeyException;
 import br.com.xyinc.dyndata.model.EntityDescriptor;
 import br.com.xyinc.dyndata.model.FieldDescriptor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,14 +20,14 @@ import java.util.*;
 
 import static br.com.xyinc.dyndata.service.EntityManagementService.*;
 import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.when;
 
 public class EntityManagementServiceTest {
 
     @Mock
-    private MongoService     mongoService;
+    private EntityOperationService entityOperationService;
     @Mock
-    private FieldTypeService fieldTypeService;
+    private FieldTypeService       fieldTypeService;
 
     @InjectMocks
     @Resource
@@ -37,16 +38,52 @@ public class EntityManagementServiceTest {
         MockitoAnnotations.initMocks(this);
 
         when(fieldTypeService.getAllowedTypes()).thenCallRealMethod();
+        when(entityOperationService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(new ArrayList<>());
+    }
 
-        doNothing().when(mongoService).testConnection();
-        doCallRealMethod().when(mongoService).setDbName(any(String.class));
-        doCallRealMethod().when(mongoService).setDbUrl(any(String.class));
-        doCallRealMethod().when(mongoService).setDbPort(any(Integer.class));
-        when(mongoService.getDbName()).thenCallRealMethod();
-        when(mongoService.getDbUrl()).thenCallRealMethod();
-        when(mongoService.getDbPort()).thenCallRealMethod();
+    private void mockToValidEntityDescriptor() {
+        Document doc = new Document();
+        doc.put(URI_FIELD_NAME, "AAAA");
+        doc.put(ENTITY_FIELD_NAME, "BBBB");
+        doc.put(SEQ_FIELD_NAME, "CCCC");
+        doc.put(FIELDS_FIELD_NAME, new ArrayList());
+        doc.put(KEYS_FIELD_NAME, Collections.singletonList("DDDD"));
 
-        when(mongoService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(new ArrayList<>());
+        when(entityOperationService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(doc));
+    }
+
+    private void mockToInvalidEntityDescriptor() {
+        Document doc = new Document();
+        doc.put("ASDASD", "AAAA");
+        doc.put("ASDadsa", "BBBB");
+        doc.put("afsdfasde", "CCCC");
+        doc.put("adasda", new ArrayList());
+        doc.put("afdadfsd", Collections.singletonList("DDDD"));
+
+        when(entityOperationService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(doc));
+    }
+
+    @Test
+    public void findEntityDescriptor_OK() {
+        mockToValidEntityDescriptor();
+        EntityDescriptor ed = entityManagementService.findEntityDescriptor("XXXX");
+        assert "AAAA".equals(ed.getUriName());
+        assert "BBBB".equals(ed.getEntityName());
+        assert "CCCC".equals(ed.getSequenceField());
+        assert ed.getFields().isEmpty();
+        assert ed.getKeys().size() == 1;
+        assert "DDDD".equals(ed.getKeys().get(0));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void findEntityDescriptor_Null() {
+        entityManagementService.findEntityDescriptor("XXXX");
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void findEntityDescriptor_Exception() {
+        mockToInvalidEntityDescriptor();
+        entityManagementService.findEntityDescriptor("XXXX");
     }
 
     @Test
@@ -155,7 +192,7 @@ public class EntityManagementServiceTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void createEntity_AlreadyExists() {
-        when(mongoService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(new Document()));
+        when(entityOperationService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(new Document()));
         HashMap<String, Object> data = new HashMap<>();
 
         data.put(URI_FIELD_NAME, "adasder");
@@ -214,6 +251,18 @@ public class EntityManagementServiceTest {
         entityManagementService.createEntity(data);
     }
 
+    @Test(expected = EntityKeyException.class)
+    public void createEntity_NonValidTypeKey() {
+        HashMap<String, Object> data = new HashMap<>();
+
+        data.put(URI_FIELD_NAME, "adasder");
+        data.put(ENTITY_FIELD_NAME, "AAA");
+        data.put(KEYS_FIELD_NAME, Collections.singletonList("testeDoc"));
+        data.put(FIELDS_FIELD_NAME, getFieldDescriptorStringArr());
+
+        entityManagementService.createEntity(data);
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void createEntity_NonListKeys() {
         HashMap<String, Object> data = new HashMap<>();
@@ -238,12 +287,24 @@ public class EntityManagementServiceTest {
         entityManagementService.createEntity(data);
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void createEntity_RepeatedFields() {
+        HashMap<String, Object> data = new HashMap<>();
+
+        data.put(URI_FIELD_NAME, "adasder");
+        data.put(ENTITY_FIELD_NAME, "AAA");
+        data.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
+        data.put(FIELDS_FIELD_NAME, getFieldDescriptorRepeatedString());
+
+        entityManagementService.createEntity(data);
+    }
+
     @Test
     public void updateEntity_OK() {
         Document prevDoc = new Document();
         prevDoc.put(KEYS_FIELD_NAME, Collections.singletonList("teste"));
 
-        when(mongoService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(prevDoc));
+        when(entityOperationService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(prevDoc));
         HashMap<String, Object> data = new HashMap<>();
 
         data.put(URI_FIELD_NAME, "any");
@@ -269,7 +330,7 @@ public class EntityManagementServiceTest {
 
     @Test
     public void deleteEntity_OK() {
-        when(mongoService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(new Document()));
+        when(entityOperationService.query(any(EntityDescriptor.class), any(Bson.class))).thenReturn(Collections.singletonList(new Document()));
         HashMap<String, Object> data = new HashMap<>();
 
         data.put(URI_FIELD_NAME, "any");
@@ -295,6 +356,36 @@ public class EntityManagementServiceTest {
 
     private List<Map<String, Object>> getFieldDescriptorString() {
         FieldDescriptor strFieldDescriptor = new FieldDescriptor("teste", FieldTypeService.DefaultFieldTypes.STRING, false);
+        strFieldDescriptor.setMinLength(10);
+        strFieldDescriptor.setMaxLength(20);
+        ObjectMapper mapper      = new ObjectMapper();
+        TypeFactory  typeFactory = mapper.getTypeFactory();
+        MapType      mapType     = typeFactory.constructMapType(HashMap.class, String.class, Object.class);
+        try {
+            return Collections.singletonList(mapper.readValue(mapper.writeValueAsString(strFieldDescriptor), mapType));
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private List<Map<String, Object>> getFieldDescriptorRepeatedString() {
+        FieldDescriptor strFieldDescriptor = new FieldDescriptor("teste", FieldTypeService.DefaultFieldTypes.STRING, false);
+        strFieldDescriptor.setMinLength(10);
+        strFieldDescriptor.setMaxLength(20);
+        ObjectMapper mapper      = new ObjectMapper();
+        TypeFactory  typeFactory = mapper.getTypeFactory();
+        MapType      mapType     = typeFactory.constructMapType(HashMap.class, String.class, Object.class);
+        try {
+            return Arrays.asList(mapper.readValue(mapper.writeValueAsString(strFieldDescriptor), mapType), mapper.readValue(mapper.writeValueAsString(strFieldDescriptor), mapType));
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private List<Map<String, Object>> getFieldDescriptorStringArr() {
+        FieldDescriptor strFieldDescriptor = new FieldDescriptor("testeDoc", FieldTypeService.DefaultFieldTypes.STRING_ARR, false);
         strFieldDescriptor.setMinLength(10);
         strFieldDescriptor.setMaxLength(20);
         ObjectMapper mapper      = new ObjectMapper();
